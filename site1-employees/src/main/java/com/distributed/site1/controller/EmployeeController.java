@@ -2,6 +2,7 @@ package com.distributed.site1.controller;
 
 import com.distributed.site1.service.SemiJoinService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,6 +24,9 @@ public class EmployeeController {
 
     @Autowired
     private SemiJoinService semiJoinService;
+
+    @Value("${site2.url}")
+    private String site2Url;
 
     // ── Site info ────────────────────────────────────────────────────────────
     @GetMapping("/info")
@@ -63,5 +67,16 @@ public class EmployeeController {
     @GetMapping("/localized-benchmark")
     public ResponseEntity<Map<String, Object>> runLocalizedBenchmark(@RequestParam(defaultValue = "IT") String dept) {
         return ResponseEntity.ok(semiJoinService.runBenchmark(dept));
+    }
+
+    // ── Health-check: ping Site 2 ────────────────────────────────────────────
+    // Demo: call this BEFORE and AFTER killing Site 2 to show status change
+    @GetMapping("/health-check")
+    public ResponseEntity<Map<String, Object>> healthCheck() {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("site1_status", "UP");
+        status.put("site1_employees_loaded", semiJoinService.getTotalEmployees());
+        status.put("site2_health", semiJoinService.checkSite2Health(site2Url));
+        return ResponseEntity.ok(status);
     }
 }

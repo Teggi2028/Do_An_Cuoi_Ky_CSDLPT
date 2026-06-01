@@ -6,18 +6,26 @@ echo ╚════════════════════════
 echo.
 
 :: ── Detect Maven ──────────────────────────────────────────────────────────
-set MVN_CMD=mvn
+set "MVN_CMD=mvn"
+set "LOCAL_MVN=C:\Users\PHI LONG\Downloads\apache-maven-3.9.12\bin\mvn.cmd"
+set "WRAPPER_MVN=C:\Users\PHI LONG\.m2\wrapper\dists\apache-maven-3.9.12-bin\5nmfsn99br87k5d4ajlekdq10k\apache-maven-3.9.12\bin\mvn.cmd"
+set "IDEA_MVN=C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2024.1\plugins\maven\lib\maven3\bin\mvn.cmd"
+
 where mvn >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo [WARN] 'mvn' not in PATH. Checking IntelliJ bundled Maven...
-    set "IDEA_MVN=C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2024.1\plugins\maven\lib\maven3\bin\mvn.cmd"
-    if exist "%IDEA_MVN%" (
+    echo [WARN] 'mvn' not in PATH. Checking known Maven locations...
+
+    if exist "%LOCAL_MVN%" (
+        set MVN_CMD="%LOCAL_MVN%"
+        echo [OK] Found Maven: Downloads folder.
+    ) else if exist "%WRAPPER_MVN%" (
+        set MVN_CMD="%WRAPPER_MVN%"
+        echo [OK] Found Maven: .m2 wrapper cache.
+    ) else if exist "%IDEA_MVN%" (
         set MVN_CMD="%IDEA_MVN%"
-        echo [OK] Found IntelliJ Maven.
+        echo [OK] Found Maven: IntelliJ bundled.
     ) else (
-        echo [ERROR] Maven not found!
-        echo Please install Maven: https://maven.apache.org/download.cgi
-        echo Or open projects in IntelliJ IDEA and run from there.
+        echo [ERROR] Maven not found. Please install Maven or run from IntelliJ IDEA.
         pause
         exit /b 1
     )
@@ -70,10 +78,11 @@ echo.
 echo ╔══════════════════════════════════════════════════════════╗
 echo ║  Both services are running! Open in browser:            ║
 echo ║                                                          ║
-echo ║  BENCHMARK  → http://localhost:8081/site1/benchmark     ║
-echo ║  Semi-Join  → http://localhost:8081/site1/semijoin      ║
-echo ║  Std Join   → http://localhost:8081/site1/standard-join ║
-echo ║  Site2 Info → http://localhost:8082/site2/info          ║
+echo ║  BENCHMARK   → http://localhost:8081/site1/benchmark    ║
+echo ║  Semi-Join   → http://localhost:8081/site1/semijoin     ║
+echo ║  Std Join    → http://localhost:8081/site1/standard-join║
+echo ║  Health-Check→ http://localhost:8081/site1/health-check ║
+echo ║  Site2 Info  → http://localhost:8082/site2/info         ║
 echo ╚══════════════════════════════════════════════════════════╝
 echo.
 pause

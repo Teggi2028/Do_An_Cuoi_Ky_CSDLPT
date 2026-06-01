@@ -6,7 +6,9 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.InputStreamReader;
@@ -36,7 +38,37 @@ public class SemiJoinService {
     private String site2Url;
 
     private final List<Employee> employees = new ArrayList<>();
-    private final RestTemplate restTemplate = new RestTemplate();
+
+    // RestTemplate with 5-second connect + read timeout
+    // → If Site 2 is down, calls fail fast instead of hanging indefinitely
+    private final RestTemplate restTemplate = buildRestTemplate();
+
+    private static RestTemplate buildRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5_000);  // 5 s to establish connection
+        factory.setReadTimeout(10_000);    // 10 s to read response
+        return new RestTemplate(factory);
+    }
+
+    // ── Health-check helper ───────────────────────────────────────────────────
+    public Map<String, Object> checkSite2Health(String site2Url) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        try {
+            Map<?, ?> response = restTemplate.getForObject(site2Url + "/site2/info", Map.class);
+            result.put("site2_status", "UP");
+            result.put("site2_url",    site2Url);
+            result.put("site2_info",   response);
+        } catch (ResourceAccessException e) {
+            result.put("site2_status",  "DOWN");
+            result.put("site2_url",     site2Url);
+            result.put("error",         "Connection refused — Site 2 is unreachable");
+            result.put("failure_type",  "NETWORK_FAILURE");
+        } catch (Exception e) {
+            result.put("site2_status", "ERROR");
+            result.put("error",        e.getMessage());
+        }
+        return result;
+    }
 
     @PostConstruct
     public void loadData() {
@@ -87,14 +119,28 @@ public class SemiJoinService {
         }
 
         // ── Step 1: Get π_EmpID(S) from Site 2 ───────────────────────────────
-        System.out.println("🔵 Step 1: Requesting π_EmpID from Site 2...");
-        Map<String, Object> step1Response = restTemplate.getForObject(
-                site2Url + "/site2/unique-empids", Map.class);
+        System.out.println("[Step 1] Requesting pi_EmpID from Site 2...");
+        Map<String, Object> step1Response;
+        try {
+            step1Response = restTemplate.getForObject(
+                    site2Url + "/site2/unique-empids", Map.class);
+        } catch (ResourceAccessException e) {
+            // ── FAILURE SCENARIO: Site 2 is down ─────────────────────────────
+            System.err.println("[FAILURE] Site 2 unreachable at Step 1: " + e.getMessage());
+            metrics.put("status",       "FAILED");
+            metrics.put("failed_step",  "Step 1 — Could not reach Site 2 to fetch pi_EmpID(S)");
+            metrics.put("failure_type", "NETWORK_FAILURE");
+            metrics.put("error",        "Site 2 (port 8082) is DOWN — connection refused after 5s timeout");
+            metrics.put("impact",       "Semi-Join ABORTED. No data transferred. Site 1 data intact.");
+            metrics.put("recovery_hint","Restart Site 2 and retry — Site 1 requires no recovery action");
+            metrics.put("execution_time_ms", System.currentTimeMillis() - startTime);
+            return metrics;
+        }
 
         List<Integer> projectedEmpIds = (List<Integer>) step1Response.get("empIds");
         long bytesStep1Received = ((Number) step1Response.get("estimatedTransferBytes")).longValue();
 
-        System.out.printf("   ✔ Received %d distinct EmpIDs from Site 2 (~%d bytes)%n",
+        System.out.printf("   OK Received %d distinct EmpIDs from Site 2 (~%d bytes)%n",
                 projectedEmpIds.size(), bytesStep1Received);
 
         // ── Step 2: Filter R locally at Site 1 ────────────────────────────────
@@ -113,13 +159,27 @@ public class SemiJoinService {
                 filteredEmployees.size(), localEmployees.size(), bytesStep2Sent);
 
         // ── Step 3: Send R' to Site 2 for final join ─────────────────────────
-        System.out.println("🔵 Step 3: Sending filtered R' to Site 2 for final join...");
+        System.out.println("[Step 3] Sending filtered R' to Site 2 for final join...");
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<List<Map<String, Object>>> request = new HttpEntity<>(filteredEmployees, headers);
 
-        ResponseEntity<Map> step3Response = restTemplate.postForEntity(
-                site2Url + "/site2/semijoin-final", request, Map.class);
+        ResponseEntity<Map> step3Response;
+        try {
+            step3Response = restTemplate.postForEntity(
+                    site2Url + "/site2/semijoin-final", request, Map.class);
+        } catch (ResourceAccessException e) {
+            // ── FAILURE SCENARIO: Site 2 died between Step 1 and Step 3 ─────
+            System.err.println("[FAILURE] Site 2 unreachable at Step 3: " + e.getMessage());
+            metrics.put("status",       "FAILED");
+            metrics.put("failed_step",  "Step 3 — Site 2 went DOWN after Step 1 completed");
+            metrics.put("failure_type", "MID_OPERATION_FAILURE");
+            metrics.put("error",        "Site 2 crashed mid-operation — partial semi-join aborted");
+            metrics.put("impact",       "Steps 1-2 wasted (~" + (bytesStep1Received + bytesStep2Sent) + " bytes transferred). No partial result saved.");
+            metrics.put("recovery_hint","This is an atomicity failure — restart Site 2 and re-run the full query");
+            metrics.put("execution_time_ms", System.currentTimeMillis() - startTime);
+            return metrics;
+        }
         Map<String, Object> joinResult = step3Response.getBody();
 
         long totalTime = System.currentTimeMillis() - startTime;
@@ -192,8 +252,22 @@ public class SemiJoinService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<List<Map<String, Object>>> request = new HttpEntity<>(allEmployeeMaps, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                site2Url + "/site2/standard-join", request, Map.class);
+        ResponseEntity<Map> response;
+        try {
+            response = restTemplate.postForEntity(
+                    site2Url + "/site2/standard-join", request, Map.class);
+        } catch (ResourceAccessException e) {
+            System.err.println("[FAILURE] Site 2 unreachable during Standard Join: " + e.getMessage());
+            Map<String, Object> failMetrics = new LinkedHashMap<>();
+            failMetrics.put("status",        "FAILED");
+            failMetrics.put("failure_type",  "NETWORK_FAILURE");
+            failMetrics.put("error",         "Site 2 (port 8082) is DOWN — Standard Join aborted");
+            failMetrics.put("bytes_wasted",  bytesSent + " bytes sent before failure");
+            failMetrics.put("impact",        "Entire employee table was shipped to Site 2 but no join result received");
+            failMetrics.put("recovery_hint", "Restart Site 2 and retry — demonstrates why Semi-Join wastes less on failure (smaller Step 3 payload)");
+            failMetrics.put("execution_time_ms", System.currentTimeMillis() - startTime);
+            return failMetrics;
+        }
 
         long totalTime = System.currentTimeMillis() - startTime;
 
