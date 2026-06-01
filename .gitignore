@@ -1,0 +1,15 @@
+# Build artifacts
+**/target/
+**/*.class
+
+# IDE
+**/.idea/
+
+# File lớn (nếu không muốn push video)
+*.mp4
+
+# Data lớn (tùy chọn)
+*.zip
+
+*.docx
+*.doc
