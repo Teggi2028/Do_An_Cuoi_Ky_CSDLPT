@@ -325,11 +325,16 @@ public class SemiJoinService {
         long semiTime  = (long) semiJoinResult.get("execution_time_ms");
 
         // Size Reduction Factor (SRF): key metric for semi-join analysis
-        double srf = (1.0 - (double) semiBytes / stdBytes) * 100.0;
+        // BUG FIX: guard division-by-zero when dept filter returns 0 employees
+        double srf = (stdBytes == 0) ? 0.0 : (1.0 - (double) semiBytes / stdBytes) * 100.0;
 
-        // Selectivity: ratio of employees who have at least 1 project
+        // Selectivity: ratio of employees (in the active scope) who have at least 1 project
+        // BUG FIX: when dept filter is applied, denominator = employees in that dept, NOT total 10,000
         int matchedEmployees = ((Number) semiJoinTransferMap.get("step2_filtered_employee_count")).intValue();
-        double selectivity = (double) matchedEmployees / employees.size() * 100.0;
+        int scopeSize = (targetDepartment == null)
+                ? employees.size()
+                : ((Number) standardResult.get("employees_sent")).intValue(); // employees sent = dept-filtered count
+        double selectivity = (scopeSize == 0) ? 0.0 : (double) matchedEmployees / scopeSize * 100.0;
 
         Map<String, Object> benchmark = new LinkedHashMap<>();
         benchmark.put("standard_join", standardResult);
@@ -338,20 +343,28 @@ public class SemiJoinService {
         // ── Formal Cost Modeling (Total_Cost = I/O + CPU + Comm) ─────────────
         // Simulated cost coefficients:
         double COMM_COEFF = 0.05; // cost per byte transferred
-        double IO_COEFF = 1.2;    // cost per disk block read
-        double CPU_COEFF = 0.01;  // cost per row processed
-        
-        long totalRowsReadStd = employees.size() + 50000; // Site 1 + Site 2 sizes
-        long totalRowsReadSemi = employees.size() + 50000; 
+        double IO_COEFF   = 1.2;  // cost per disk block read (100 rows/block assumed)
+        double CPU_COEFF  = 0.01; // cost per row processed
 
-        double stdCommCost = stdBytes * COMM_COEFF;
-        double stdIoCost = (employees.size() / 100.0 + 50000 / 100.0) * IO_COEFF; // 100 rows per block
-        double stdCpuCost = totalRowsReadStd * CPU_COEFF;
+        // Standard Join: Site1 scans all local employees + Site2 scans ALL 50,000 assignments
+        long stdEmpCount   = (long) ((Number) standardResult.get("employees_sent")).intValue();
+        long totalRowsReadStd = stdEmpCount + 50_000L;
+        double stdCommCost  = stdBytes * COMM_COEFF;
+        double stdIoCost    = (stdEmpCount / 100.0 + 50_000 / 100.0) * IO_COEFF;
+        double stdCpuCost   = totalRowsReadStd * CPU_COEFF;
         double stdTotalCost = stdCommCost + stdIoCost + stdCpuCost;
 
-        double semiCommCost = semiBytes * COMM_COEFF;
-        double semiIoCost = (employees.size() / 100.0 + 50000 / 100.0) * IO_COEFF;
-        double semiCpuCost = totalRowsReadSemi * CPU_COEFF + matchedEmployees * CPU_COEFF; // extra cost for filtering
+        // Semi-Join:
+        //   Site1 I/O: scans localEmployees (may be dept-filtered) + filter step
+        //   Site2 I/O: only scans assignments whose EmpID ∈ filteredEmployees (not all 50k)
+        //   BUG FIX: semiIoCost was same as stdIoCost — but Site2 only touches matched assignments
+        long semiEmpScanned    = (long) ((Number) semiJoinTransferMap.get("step1_unique_empids_count")).intValue();
+        long matchedAssignments = (long) matchedEmployees * (50_000L / Math.max(semiEmpScanned, 1)); // avg fan-out
+        matchedAssignments     = Math.min(matchedAssignments, 50_000L); // cap at total
+        long totalRowsReadSemi  = scopeSize + matchedAssignments;
+        double semiCommCost  = semiBytes * COMM_COEFF;
+        double semiIoCost    = (scopeSize / 100.0 + matchedAssignments / 100.0) * IO_COEFF;
+        double semiCpuCost   = totalRowsReadSemi * CPU_COEFF + matchedEmployees * CPU_COEFF; // +filter step
         double semiTotalCost = semiCommCost + semiIoCost + semiCpuCost;
 
         Map<String, Object> costModel = new LinkedHashMap<>();
@@ -365,10 +378,12 @@ public class SemiJoinService {
         analysis.put("dataset_employees_site1", employees.size());
         analysis.put("dataset_assignments_site2", "50,000 rows");
         if (targetDepartment != null) {
-            analysis.put("localization_predicate", "σ_Department='" + targetDepartment + "'");
+            analysis.put("localization_predicate",   "σ_Department='" + targetDepartment + "'");
+            analysis.put("employees_in_dept",        scopeSize);
         }
         analysis.put("matched_employees_with_project", matchedEmployees);
-        analysis.put("selectivity_percent", String.format("%.2f%%", selectivity));
+        // Selectivity: % of employees IN THE ACTIVE SCOPE that have at least 1 assignment
+        analysis.put("selectivity_percent", String.format("%.2f%% (of %d employees in scope)", selectivity, scopeSize));
 
         analysis.put("bytes_transferred_standard_join", stdBytes);
         analysis.put("bytes_transferred_semi_join",     semiBytes);

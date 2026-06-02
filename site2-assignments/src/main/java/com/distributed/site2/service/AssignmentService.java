@@ -118,8 +118,13 @@ public class AssignmentService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalJoinedRows",            joinedRows.size());
-        result.put("uniqueEmployeesWithProject",  seenEmpIds.size()); // already tracked above
-        result.put("sampleRows",                 joinedRows.stream().limit(5).collect(Collectors.toList()));
+        result.put("uniqueEmployeesWithProject",  seenEmpIds.size());
+        // BUG FIX: HashMap iteration order is non-deterministic → sampleRows always showed same dept (IT).
+        // Sort by empId before limiting so the sample is consistent and human-readable.
+        result.put("sampleRows", joinedRows.stream()
+                .sorted(Comparator.comparingInt(r -> ((Number) r.get("empId")).intValue()))
+                .limit(5)
+                .collect(Collectors.toList()));
         return result;
     }
 

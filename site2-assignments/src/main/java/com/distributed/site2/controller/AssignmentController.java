@@ -43,8 +43,9 @@ public class AssignmentController {
     public ResponseEntity<Map<String, Object>> getUniqueEmpIds() {
         List<Integer> empIds = assignmentService.getDistinctEmpIds();
 
-        // Each int ~4 bytes on wire (JSON number, average 4-5 chars)
-        long estimatedBytes = (long) empIds.size() * 4;
+        // BUG FIX: EmpIDs range 1–10000 → avg 4 digits + 1 comma separator = ~5 bytes each
+        // Plus JSON array brackets "[...]" = +2 bytes overhead
+        long estimatedBytes = (long) empIds.size() * 5 + 2;
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("step", "Semi-Join Step 1: Project(EmpID) from Site 2");
