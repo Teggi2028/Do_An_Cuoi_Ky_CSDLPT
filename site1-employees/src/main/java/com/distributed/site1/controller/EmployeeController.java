@@ -1,5 +1,6 @@
 package com.distributed.site1.controller;
 
+import com.distributed.site1.service.ExportService;
 import com.distributed.site1.service.SemiJoinService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,10 +13,12 @@ import java.util.Map;
 /**
  * EmployeeController — REST API for Site 1 (Orchestrator)
  *
- *  GET /site1/info           → Dataset info
- *  GET /site1/semijoin       → Run Semi-Join only
- *  GET /site1/standard-join  → Run Standard Join only
- *  GET /site1/benchmark      → Run both + Size Reduction Factor analysis
+ *  GET /site1/info               → Dataset info
+ *  GET /site1/semijoin           → Run Semi-Join only
+ *  GET /site1/standard-join      → Run Standard Join only
+ *  GET /site1/benchmark          → Run both + Size Reduction Factor analysis
+ *  GET /site1/export             → Run Semi-Join + export full result to CSV + TXT
+ *  GET /site1/export?dept=IT     → Same with localization predicate
  */
 @RestController
 @RequestMapping("/site1")
@@ -24,6 +27,9 @@ public class EmployeeController {
 
     @Autowired
     private SemiJoinService semiJoinService;
+
+    @Autowired
+    private ExportService exportService;
 
     @Value("${site2.url}")
     private String site2Url;
@@ -40,7 +46,8 @@ public class EmployeeController {
         info.put("endpoints", Map.of(
                 "benchmark",     "GET /site1/benchmark",
                 "semijoin",      "GET /site1/semijoin",
-                "standard_join", "GET /site1/standard-join"
+                "standard_join", "GET /site1/standard-join",
+                "export",        "GET /site1/export  (optional: ?dept=Engineering)"
         ));
         return ResponseEntity.ok(info);
     }
@@ -67,6 +74,15 @@ public class EmployeeController {
     @GetMapping("/localized-benchmark")
     public ResponseEntity<Map<String, Object>> runLocalizedBenchmark(@RequestParam(defaultValue = "IT") String dept) {
         return ResponseEntity.ok(semiJoinService.runBenchmark(dept));
+    }
+
+    // ── Export: run Semi-Join → write CSV + summary TXT ──────────────────────
+    // GET /site1/export           → full dataset export
+    // GET /site1/export?dept=IT   → localized export (prune by department first)
+    @GetMapping("/export")
+    public ResponseEntity<Map<String, Object>> exportResult(
+            @RequestParam(required = false) String dept) {
+        return ResponseEntity.ok(exportService.exportSemiJoinResult(dept));
     }
 
     // ── Health-check: ping Site 2 ────────────────────────────────────────────

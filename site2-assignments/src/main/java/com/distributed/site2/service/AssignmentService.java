@@ -124,6 +124,43 @@ public class AssignmentService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // SEMI-JOIN FULL — same as above but returns ALL rows (no limit)
+    // Used by the export endpoint to write complete result to file
+    // ─────────────────────────────────────────────────────────────────────────
+    public Map<String, Object> performSemiJoinFinalFull(List<Map<String, Object>> filteredEmployees) {
+        Map<Integer, Map<String, Object>> empLookupMap = new HashMap<>(filteredEmployees.size() * 2);
+        for (Map<String, Object> emp : filteredEmployees) {
+            int id = ((Number) emp.get("empId")).intValue();
+            empLookupMap.put(id, emp);
+        }
+
+        List<Map<String, Object>> joinedRows = new ArrayList<>();
+        Set<Integer> seenEmpIds = new HashSet<>();
+
+        for (Integer empId : empLookupMap.keySet()) {
+            List<Assignment> matched = empIdIndex.getOrDefault(empId, Collections.emptyList());
+            Map<String, Object> emp = empLookupMap.get(empId);
+            for (Assignment a : matched) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("empId",       a.getEmpId());
+                row.put("empName",     emp.getOrDefault("name",       "N/A"));
+                row.put("department",  emp.getOrDefault("department", "N/A"));
+                row.put("projectId",   a.getProjectId());
+                row.put("role",        a.getRole());
+                row.put("hoursWorked", a.getHoursWorked());
+                joinedRows.add(row);
+                seenEmpIds.add(empId);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalJoinedRows",           joinedRows.size());
+        result.put("uniqueEmployeesWithProject", seenEmpIds.size());
+        result.put("allRows",                   joinedRows); // full data — no limit
+        return result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // STANDARD JOIN — receives ALL employees from Site 1
     // Joins with all assignments (no pre-filtering)
     //

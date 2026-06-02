@@ -84,4 +84,17 @@ public class AssignmentController {
         Map<String, Object> result = assignmentService.performStandardJoin(allEmployees);
         return ResponseEntity.ok(result);
     }
+
+    // ── SEMI-JOIN FULL (for export) ───────────────────────────────────────────
+    // Same as semijoin-final but returns ALL rows without limit — used by Site 1 export
+    @PostMapping("/semijoin-full")
+    public ResponseEntity<Map<String, Object>> semiJoinFull(
+            @RequestBody List<Map<String, Object>> filteredEmployees) {
+
+        System.out.printf("📥 [Export] Received %d filtered employees — returning FULL join result%n",
+                filteredEmployees.size());
+
+        Map<String, Object> result = assignmentService.performSemiJoinFinalFull(filteredEmployees);
+        return ResponseEntity.ok(result);
+    }
 }

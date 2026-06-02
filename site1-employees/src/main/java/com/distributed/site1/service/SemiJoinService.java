@@ -295,7 +295,28 @@ public class SemiJoinService {
         System.out.println("████████████████████████████████████████");
 
         Map<String, Object> standardResult = executeStandardJoin(targetDepartment);
-        Map<String, Object> semiJoinResult = executeSemiJoin(targetDepartment);
+        Map<String, Object> semiJoinResult  = executeSemiJoin(targetDepartment);
+
+        // ── Guard: abort if either sub-call failed (Site 2 down) ─────────────
+        if ("FAILED".equals(standardResult.get("status"))) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("status",        "FAILED");
+            err.put("failed_phase",  "Standard Join");
+            err.put("error",         standardResult.get("error"));
+            err.put("failure_type",  standardResult.get("failure_type"));
+            err.put("recovery_hint", "Restart Site 2 (port 8082) and retry /benchmark");
+            return err;
+        }
+        if ("FAILED".equals(semiJoinResult.get("status"))) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("status",        "FAILED");
+            err.put("failed_phase",  "Semi-Join");
+            err.put("failed_step",   semiJoinResult.get("failed_step"));
+            err.put("error",         semiJoinResult.get("error"));
+            err.put("failure_type",  semiJoinResult.get("failure_type"));
+            err.put("recovery_hint", "Restart Site 2 (port 8082) and retry /benchmark");
+            return err;
+        }
 
         long stdBytes  = (long) standardResult.get("TOTAL_BYTES_TRANSFERRED");
         Map<String, Object> semiJoinTransferMap = (Map<String, Object>) semiJoinResult.get("data_transfer");
@@ -394,4 +415,6 @@ public class SemiJoinService {
     }
 
     public int getTotalEmployees() { return employees.size(); }
+
+    public List<Employee> getAllEmployees() { return Collections.unmodifiableList(employees); }
 }
