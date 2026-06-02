@@ -13,12 +13,16 @@ import java.util.Map;
 /**
  * EmployeeController — REST API for Site 1 (Orchestrator)
  *
- *  GET /site1/info               → Dataset info
- *  GET /site1/semijoin           → Run Semi-Join only
- *  GET /site1/standard-join      → Run Standard Join only
- *  GET /site1/benchmark          → Run both + Size Reduction Factor analysis
- *  GET /site1/export             → Run Semi-Join + export full result to CSV + TXT
- *  GET /site1/export?dept=IT     → Same with localization predicate
+ *  GET /site1/info                        → Dataset info
+ *  GET /site1/semijoin                    → Run Semi-Join only (all departments)
+ *  GET /site1/semijoin?dept=HR            → Run Semi-Join with localization predicate
+ *  GET /site1/standard-join              → Run Standard Join only (all departments)
+ *  GET /site1/standard-join?dept=HR      → Run Standard Join with localization predicate
+ *  GET /site1/benchmark                  → Run both + Size Reduction Factor analysis
+ *  GET /site1/benchmark?dept=HR          → Run both with localization predicate
+ *  GET /site1/localized-benchmark?dept=  → Alias for /benchmark?dept= (kept for compatibility)
+ *  GET /site1/export                     → Run Semi-Join + export full result to CSV + TXT
+ *  GET /site1/export?dept=IT             → Same with localization predicate
  */
 @RestController
 @RequestMapping("/site1")
@@ -53,26 +57,37 @@ public class EmployeeController {
     }
 
     // ── Semi-Join ────────────────────────────────────────────────────────────
+    // GET /site1/semijoin           → full dataset (no filter)
+    // GET /site1/semijoin?dept=HR   → localized by department
     @GetMapping("/semijoin")
-    public ResponseEntity<Map<String, Object>> runSemiJoin() {
-        return ResponseEntity.ok(semiJoinService.executeSemiJoin(null));
+    public ResponseEntity<Map<String, Object>> runSemiJoin(
+            @RequestParam(required = false) String dept) {
+        return ResponseEntity.ok(semiJoinService.executeSemiJoin(dept));
     }
 
     // ── Standard Join ────────────────────────────────────────────────────────
+    // GET /site1/standard-join           → full dataset (no filter)
+    // GET /site1/standard-join?dept=HR   → localized by department
     @GetMapping("/standard-join")
-    public ResponseEntity<Map<String, Object>> runStandardJoin() {
-        return ResponseEntity.ok(semiJoinService.executeStandardJoin(null));
+    public ResponseEntity<Map<String, Object>> runStandardJoin(
+            @RequestParam(required = false) String dept) {
+        return ResponseEntity.ok(semiJoinService.executeStandardJoin(dept));
     }
 
     // ── Benchmark (main analysis endpoint) ───────────────────────────────────
+    // GET /site1/benchmark           → full dataset (no filter)
+    // GET /site1/benchmark?dept=HR   → localized by department
     @GetMapping("/benchmark")
-    public ResponseEntity<Map<String, Object>> runBenchmark() {
-        return ResponseEntity.ok(semiJoinService.runBenchmark(null));
+    public ResponseEntity<Map<String, Object>> runBenchmark(
+            @RequestParam(required = false) String dept) {
+        return ResponseEntity.ok(semiJoinService.runBenchmark(dept));
     }
 
-    // ── Localized Benchmark ──────────────────────────────────────────────────
+    // ── Localized Benchmark (alias for /benchmark?dept=) — kept for compatibility ──
+    // GET /site1/localized-benchmark?dept=HR
     @GetMapping("/localized-benchmark")
-    public ResponseEntity<Map<String, Object>> runLocalizedBenchmark(@RequestParam(defaultValue = "IT") String dept) {
+    public ResponseEntity<Map<String, Object>> runLocalizedBenchmark(
+            @RequestParam(required = false) String dept) {
         return ResponseEntity.ok(semiJoinService.runBenchmark(dept));
     }
 
